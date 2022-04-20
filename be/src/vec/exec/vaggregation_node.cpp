@@ -172,7 +172,7 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
             const auto& type = vexpr->type();
 
             if (!data_type->have_maximum_size_of_value() &&
-                !(type.type == TYPE_CHAR && type.len > 0 && type.len <= sizeof(UInt128))) {
+                !(type.type == TYPE_CHAR && type.len > 0 && type.len <= sizeof(UInt8))) {
                 use_fixed_key = false;
                 break;
             }
