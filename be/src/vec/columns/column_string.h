@@ -46,12 +46,12 @@ public:
 private:
     friend class COWHelper<IColumn, ColumnString>;
 
-    /// Maps i'th position to offset to i+1'th element. Last offset maps to the end of all chars (is the size of all chars).
-    Offsets offsets;
-
     /// Bytes of strings, placed contiguously.
     /// For convenience, every string ends with terminating zero byte. Note that strings could contain zero bytes in the middle.
     Chars chars;
+
+    /// Maps i'th position to offset to i+1'th element. Last offset maps to the end of all chars (is the size of all chars).
+    Offsets offsets;
 
     size_t ALWAYS_INLINE offset_at(ssize_t i) const { return offsets[i - 1]; }
 
@@ -67,8 +67,8 @@ private:
     ColumnString() = default;
 
     ColumnString(const ColumnString& src)
-            : offsets(src.offsets.begin(), src.offsets.end()),
-              chars(src.chars.begin(), src.chars.end()) {}
+            : chars(src.chars.begin(), src.chars.end()),
+              offsets(src.offsets.begin(), src.offsets.end()) {}
 
 public:
     const char* get_family_name() const override { return "String"; }

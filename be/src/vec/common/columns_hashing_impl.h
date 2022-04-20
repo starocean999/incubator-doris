@@ -114,7 +114,7 @@ public:
     bool is_found() const { return found; }
 };
 
-template <typename Derived, typename Value, typename Mapped, bool consecutive_keys_optimization>
+template <typename Derived, typename Value, typename Mapped, bool consecutive_keys_optimization, bool used_for_fixed = false >
 class HashMethodBase {
 public:
     using EmplaceResult = EmplaceResultImpl<Mapped>;
@@ -193,7 +193,9 @@ protected:
             cache.empty = false;
 
             if constexpr (has_mapped) {
-                cache.value.first = *lookup_result_get_key(it);
+                if constexpr (!used_for_fixed || sizeof(KeyHolder) > sizeof(UInt16)) {
+                    cache.value.first = *lookup_result_get_key(it);
+                }
                 cache.value.second = *lookup_result_get_mapped(it);
                 cached = &cache.value.second;
             } else {

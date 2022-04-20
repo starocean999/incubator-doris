@@ -126,30 +126,38 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
     DCHECK(probe_exprs.size() >= 1);
     if (probe_exprs.size() == 1) {
         auto is_nullable = probe_exprs[0]->root()->is_nullable();
+        int type_len = probe_exprs[0]->root()->type().len;
+        _probe_key_sz.push_back(type_len);
         switch (probe_exprs[0]->root()->result_type()) {
         case TYPE_TINYINT:
         case TYPE_BOOLEAN:
-            _agg_data.init(AggregatedDataVariants::Type::int8_key, is_nullable);
+            _agg_data.init(AggregatedDataVariants::Type::int8_key, -1, is_nullable);
             return;
         case TYPE_SMALLINT:
-            _agg_data.init(AggregatedDataVariants::Type::int16_key, is_nullable);
+            _agg_data.init(AggregatedDataVariants::Type::int16_key, -1, is_nullable);
             return;
         case TYPE_INT:
         case TYPE_FLOAT:
-            _agg_data.init(AggregatedDataVariants::Type::int32_key, is_nullable);
+            _agg_data.init(AggregatedDataVariants::Type::int32_key, -1, is_nullable);
             return;
         case TYPE_BIGINT:
         case TYPE_DOUBLE:
         case TYPE_DATE:
         case TYPE_DATETIME:
-            _agg_data.init(AggregatedDataVariants::Type::int64_key, is_nullable);
+            _agg_data.init(AggregatedDataVariants::Type::int64_key, -1, is_nullable);
             return;
         case TYPE_LARGEINT:
         case TYPE_DECIMALV2:
-            _agg_data.init(AggregatedDataVariants::Type::int128_key, is_nullable);
+            _agg_data.init(AggregatedDataVariants::Type::int128_key, -1, is_nullable);
             return;
+        case TYPE_CHAR:
+             _agg_data.init(AggregatedDataVariants::Type::fixed_string_key, type_len, is_nullable);
+             return;
+        case TYPE_VARCHAR:
+             _agg_data.init(AggregatedDataVariants::Type::string_key, type_len, is_nullable);
+             return;
         default:
-            _agg_data.init(AggregatedDataVariants::Type::serialized);
+            _agg_data.init(AggregatedDataVariants::Type::serialized, -1 );
         }
     } else {
         bool use_fixed_key = true;
@@ -157,18 +165,29 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
         int key_byte_size = 0;
 
         _probe_key_sz.resize(_probe_expr_ctxs.size());
+        _probe_key_offset.resize(_probe_expr_ctxs.size());
         for (int i = 0; i < _probe_expr_ctxs.size(); ++i) {
             const auto vexpr = _probe_expr_ctxs[i]->root();
             const auto& data_type = vexpr->data_type();
+            const auto& type = vexpr->type();
 
-            if (!data_type->have_maximum_size_of_value()) {
+            if (!data_type->have_maximum_size_of_value() &&
+                !(type.type == TYPE_CHAR && type.len > 0 && type.len <= sizeof(UInt128))) {
                 use_fixed_key = false;
                 break;
             }
 
             auto is_null = data_type->is_nullable();
             has_null |= is_null;
-            _probe_key_sz[i] = data_type->get_maximum_size_of_value_in_memory() - (is_null ? 1 : 0);
+            if (type.type == TYPE_CHAR) {
+                _probe_key_sz[i] = type.len;
+                _probe_key_offset[i] = type.len + 1;
+            } else {
+                _probe_key_sz[i] =
+                        data_type->get_maximum_size_of_value_in_memory() - (is_null ? 1 : 0);
+                _probe_key_offset[i] = _probe_key_sz[i];
+            }
+
             key_byte_size += _probe_key_sz[i];
         }
 
@@ -178,25 +197,32 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
 
         if (use_fixed_key) {
             if (has_null) {
-                if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <= sizeof(UInt64)) {
-                    _agg_data.init(AggregatedDataVariants::Type::int64_keys, has_null);
+                if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <= sizeof(UInt32)) {
+                    _agg_data.init(AggregatedDataVariants::Type::int32_keys, -1, has_null);
+                } else if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <=
+                           sizeof(UInt64)) {
+                    _agg_data.init(AggregatedDataVariants::Type::int64_keys, -1, has_null);
                 } else if (std::tuple_size<KeysNullMap<UInt128>>::value + key_byte_size <=
                            sizeof(UInt128)) {
-                    _agg_data.init(AggregatedDataVariants::Type::int128_keys, has_null);
+                    _agg_data.init(AggregatedDataVariants::Type::int128_keys, -1, has_null);
                 } else {
-                    _agg_data.init(AggregatedDataVariants::Type::int256_keys, has_null);
+                    _agg_data.init(AggregatedDataVariants::Type::int256_keys, -1, has_null);
                 }
             } else {
-                if (key_byte_size <= sizeof(UInt64)) {
-                    _agg_data.init(AggregatedDataVariants::Type::int64_keys, has_null);
+                if (key_byte_size <= sizeof(UInt16)) {
+                    _agg_data.init(AggregatedDataVariants::Type::int16_keys, -1, has_null);
+                } else if (key_byte_size <= sizeof(UInt32)) {
+                    _agg_data.init(AggregatedDataVariants::Type::int32_keys, -1, has_null);
+                } else if (key_byte_size <= sizeof(UInt64)) {
+                    _agg_data.init(AggregatedDataVariants::Type::int64_keys, -1, has_null);
                 } else if (key_byte_size <= sizeof(UInt128)) {
-                    _agg_data.init(AggregatedDataVariants::Type::int128_keys, has_null);
+                    _agg_data.init(AggregatedDataVariants::Type::int128_keys, -1, has_null);
                 } else {
-                    _agg_data.init(AggregatedDataVariants::Type::int256_keys, has_null);
+                    _agg_data.init(AggregatedDataVariants::Type::int256_keys, -1, has_null);
                 }
             }
         } else {
-            _agg_data.init(AggregatedDataVariants::Type::serialized);
+            _agg_data.init(AggregatedDataVariants::Type::serialized, -1);
         }
     }
 }
@@ -268,7 +294,7 @@ Status AggregationNode::prepare(RuntimeState* state) {
     }
 
     if (_probe_expr_ctxs.empty()) {
-        _agg_data.init(AggregatedDataVariants::Type::without_key);
+        _agg_data.init(AggregatedDataVariants::Type::without_key, -1);
 
         _agg_data.without_key = reinterpret_cast<AggregateDataPtr>(
                 _mem_pool->allocate(_total_size_of_aggregate_states));
@@ -741,7 +767,7 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                 [&](auto &&agg_method) -> void {
                     using HashMethodType = std::decay_t<decltype(agg_method)>;
                     using AggState = typename HashMethodType::State;
-                    AggState state(key_columns, _probe_key_sz, nullptr);
+                    AggState state(key_columns, _probe_key_sz, nullptr, _probe_key_offset);
                     /// For all rows.
                     for (size_t i = 0; i < rows; ++i) {
                         AggregateDataPtr aggregate_data = nullptr;
@@ -801,7 +827,7 @@ Status AggregationNode::_execute_with_serialized_key(Block* block) {
             [&](auto&& agg_method) -> void {
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
                 using AggState = typename HashMethodType::State;
-                AggState state(key_columns, _probe_key_sz, nullptr);
+                AggState state(key_columns, _probe_key_sz, nullptr, _probe_key_offset);
                 /// For all rows.
                 for (size_t i = 0; i < rows; ++i) {
                     AggregateDataPtr aggregate_data = nullptr;
@@ -1019,7 +1045,7 @@ Status AggregationNode::_merge_with_serialized_key(Block* block) {
             [&](auto&& agg_method) -> void {
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
                 using AggState = typename HashMethodType::State;
-                AggState state(key_columns, _probe_key_sz, nullptr);
+                AggState state(key_columns, _probe_key_sz, nullptr, _probe_key_offset);
                 /// For all rows.
                 for (size_t i = 0; i < rows; ++i) {
                     AggregateDataPtr aggregate_data = nullptr;

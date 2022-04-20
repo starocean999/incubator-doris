@@ -47,7 +47,7 @@ struct HashMethodOneNumber : public columns_hashing_impl::HashMethodBase<
 
     /// If the keys of a fixed length then key_sizes contains their lengths, empty otherwise.
     HashMethodOneNumber(const ColumnRawPtrs& key_columns, const Sizes& /*key_sizes*/,
-                        const HashMethodContextPtr&) {
+                        const HashMethodContextPtr&, const Sizes& offsets_ = {}) {
         vec = key_columns[0]->get_raw_data().data;
     }
 
@@ -85,7 +85,7 @@ struct HashMethodString : public columns_hashing_impl::HashMethodBase<
     const UInt8* chars;
 
     HashMethodString(const ColumnRawPtrs& key_columns, const Sizes& /*key_sizes*/,
-                     const HashMethodContextPtr&) {
+                     const HashMethodContextPtr&, const Sizes& offsets_ = {}) {
         const IColumn& column = *key_columns[0];
         const ColumnString& column_string = assert_cast<const ColumnString&>(column);
         offsets = column_string.get_offsets().data();
@@ -106,6 +106,84 @@ protected:
     friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, use_cache>;
 };
 
+/// For the case when there is one fixed-length string key.
+template <typename Value, typename Mapped, bool place_string_to_arena = true, bool use_cache = true>
+struct HashMethodFixedString
+        : public columns_hashing_impl::HashMethodBase<
+                  HashMethodFixedString<Value, Mapped, place_string_to_arena, use_cache>, Value,
+                  Mapped, use_cache> {
+    using Self = HashMethodFixedString<Value, Mapped, place_string_to_arena, use_cache>;
+    using Base = columns_hashing_impl::HashMethodBase<Self, Value, Mapped, use_cache>;
+
+    size_t n;
+    const UInt8* chars;
+
+    HashMethodFixedString(const ColumnRawPtrs& key_columns, const Sizes& /*key_sizes*/,
+                          const HashMethodContextPtr&, const Sizes& offsets_ = {}) {
+        const IColumn& column = *key_columns[0];
+        const ColumnString& column_string = assert_cast<const ColumnString&>(column);
+        n = column_string.get_offsets().data()[0];
+        chars = column_string.get_chars().data();
+    }
+
+    auto get_key_holder(size_t row, [[maybe_unused]] Arena& pool) const {
+        StringRef key(chars + row * n, n);
+
+        if constexpr (place_string_to_arena) {
+            return ArenaKeyHolder {key, pool};
+        } else {
+            return key;
+        }
+    }
+
+protected:
+    friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, use_cache>;
+};
+
+template <typename Value, typename Mapped, typename FieldType, bool use_cache = true>
+struct HashMethodShortString : public columns_hashing_impl::HashMethodBase<
+                                     HashMethodShortString<Value, Mapped, FieldType, use_cache>,
+                                     Value, Mapped, use_cache> {
+    using Self = HashMethodShortString<Value, Mapped, FieldType, use_cache>;
+    using Base = columns_hashing_impl::HashMethodBase<Self, Value, Mapped, use_cache>;
+
+    //size_t n;
+    const IColumn::Offset* offsets;
+    const UInt8* chars;
+
+    /// If the keys of a fixed length then key_sizes contains their lengths, empty otherwise.
+    HashMethodShortString(const ColumnRawPtrs& key_columns, const Sizes& /*key_sizes*/,
+                        const HashMethodContextPtr&, const Sizes& offsets_ = {}) {
+        const IColumn& column = *key_columns[0];
+        const ColumnString& column_string = assert_cast<const ColumnString&>(column);
+        //n = column_string.get_offsets().data()[0];
+        offsets = column_string.get_offsets().data();
+        chars = column_string.get_chars().data();
+    }
+
+    /// Creates context. Method is called once and result context is used in all threads.
+    using Base::createContext; /// (const HashMethodContext::Settings &) -> HashMethodContextPtr
+
+    /// Emplace key into HashTable or HashMap. If Data is HashMap, returns ptr to value, otherwise nullptr.
+    /// Data is a HashTable where to insert key from column's row.
+    /// For Serialized method, key may be placed in pool.
+    using Base::emplace_key; /// (Data & data, size_t row, Arena & pool) -> EmplaceResult
+
+    /// Find key into HashTable or HashMap. If Data is HashMap and key was found, returns ptr to value, otherwise nullptr.
+    using Base::find_key; /// (Data & data, size_t row, Arena & pool) -> FindResult
+
+    /// Get hash value of row.
+    using Base::get_hash; /// (const Data & data, size_t row, Arena & pool) -> size_t
+
+    /// Is used for default implementation in HashMethodBase.
+    FieldType get_key_holder(size_t row, Arena&) const {
+        FieldType res {};
+        //memcpy(&res, chars + row * n, n - 1);
+        memcpy(&res, chars + offsets[row - 1], offsets[row] - offsets[row - 1] - 1);
+        return res;
+    }
+};
+
 /** Hash by concatenating serialized key values.
   * The serialized value differs in that it uniquely allows to deserialize it, having only the position with which it starts.
   * That is, for example, for strings, it contains first the serialized length of the string, and then the bytes.
@@ -122,7 +200,7 @@ struct HashMethodSerialized
     size_t keys_size;
 
     HashMethodSerialized(const ColumnRawPtrs& key_columns_, const Sizes& /*key_sizes*/,
-                         const HashMethodContextPtr&)
+                         const HashMethodContextPtr&, const Sizes& offsets_ = {})
             : key_columns(key_columns_), keys_size(key_columns_.size()) {}
 
 protected:
@@ -145,7 +223,7 @@ struct HashMethodHashed
 
     ColumnRawPtrs key_columns;
 
-    HashMethodHashed(ColumnRawPtrs key_columns_, const Sizes&, const HashMethodContextPtr&)
+    HashMethodHashed(ColumnRawPtrs key_columns_, const Sizes&, const HashMethodContextPtr&, const Sizes& offsets_ = {})
             : key_columns(std::move(key_columns_)) {}
 
     ALWAYS_INLINE Key get_key_holder(size_t row, Arena&) const {
@@ -182,6 +260,35 @@ struct HashMethodKeysFixed
     }
 };
 
+template <typename Value, typename Key, typename Mapped, bool has_nullable_keys_ = false,
+          bool use_cache = true>
+struct HashMethodKeysFixedForAgg
+        : private columns_hashing_impl::BaseStateKeysFixed<Key, has_nullable_keys_>,
+          public columns_hashing_impl::HashMethodBase<
+                  HashMethodKeysFixedForAgg<Value, Key, Mapped, has_nullable_keys_, use_cache>, Value,
+                  Mapped, use_cache, true> {
+    using Self = HashMethodKeysFixedForAgg<Value, Key, Mapped, has_nullable_keys_, use_cache>;
+    using BaseHashed = columns_hashing_impl::HashMethodBase<Self, Value, Mapped, use_cache, true>;
+    using Base = columns_hashing_impl::BaseStateKeysFixed<Key, has_nullable_keys_>;
+
+    const Sizes& key_sizes;
+    size_t keys_size;
+    Sizes offsets;
+
+    HashMethodKeysFixedForAgg(const ColumnRawPtrs& key_columns, const Sizes& key_sizes_,
+                        const HashMethodContextPtr&, const Sizes& offsets_ )
+            : Base(key_columns), key_sizes(key_sizes_), keys_size(key_columns.size()), offsets(offsets_) {}
+
+    ALWAYS_INLINE Key get_key_holder(size_t row, Arena&) const {
+        if constexpr (has_nullable_keys_) {
+            auto bitmap = Base::create_bitmap(row);
+            return pack_fixed<Key>(row, keys_size, Base::get_actual_columns(), key_sizes, offsets, bitmap);
+        } else {
+            return pack_fixed<Key>(row, keys_size, Base::get_actual_columns(), key_sizes, offsets);
+        }
+    }
+};
+
 template <typename SingleColumnMethod, typename Mapped, bool use_cache>
 struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
     using Base = SingleColumnMethod;
@@ -204,8 +311,8 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
     }
 
     HashMethodSingleLowNullableColumn(
-            const ColumnRawPtrs & key_columns_nullable, const Sizes & key_sizes, const HashMethodContextPtr & context)
-        : Base(get_nested_column(key_columns_nullable[0]), key_sizes, context), key_columns(key_columns_nullable) {
+            const ColumnRawPtrs & key_columns_nullable, const Sizes & key_sizes, const HashMethodContextPtr & context, const Sizes& offsets_ = {})
+        : Base(get_nested_column(key_columns_nullable[0]), key_sizes, context, offsets_), key_columns(key_columns_nullable) {
     }
 
     template <typename Data>

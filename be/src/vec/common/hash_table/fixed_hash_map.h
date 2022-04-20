@@ -107,6 +107,12 @@ struct FixedHashMapImplicitZeroCell {
 };
 
 template <typename Key, typename Mapped, typename State>
+ALWAYS_INLINE inline auto lookup_result_get_key(FixedHashMapImplicitZeroCell<Key, Mapped, State>* cell) {
+    Key* key = nullptr;
+    return key;
+}
+
+template <typename Key, typename Mapped, typename State>
 ALWAYS_INLINE inline auto lookup_result_get_mapped(FixedHashMapImplicitZeroCell<Key, Mapped, State>* cell) {
     return &cell->get_second();
 }

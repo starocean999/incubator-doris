@@ -224,6 +224,157 @@ static inline T ALWAYS_INLINE pack_fixed(size_t i, size_t keys_size,
     return key;
 }
 
+template <typename T, bool has_low_cardinality = false>
+static inline T ALWAYS_INLINE
+pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const Sizes& key_sizes,
+           const Sizes& offsets,
+           const ColumnRawPtrs* low_cardinality_positions [[maybe_unused]] = nullptr,
+           const Sizes* low_cardinality_sizes [[maybe_unused]] = nullptr) {
+    union {
+        T key;
+        char bytes[sizeof(key)] = {};
+    };
+
+    size_t offset = 0;
+
+    for (size_t j = 0; j < keys_size; ++j) {
+        size_t index = i;
+        const IColumn* column = key_columns[j];
+        if constexpr (has_low_cardinality) {
+            if (const IColumn* positions = (*low_cardinality_positions)[j]) {
+                switch ((*low_cardinality_sizes)[j]) {
+                case sizeof(UInt8):
+                    index = assert_cast<const ColumnUInt8*>(positions)->get_element(i);
+                    break;
+                case sizeof(UInt16):
+                    index = assert_cast<const ColumnUInt16*>(positions)->get_element(i);
+                    break;
+                case sizeof(UInt32):
+                    index = assert_cast<const ColumnUInt32*>(positions)->get_element(i);
+                    break;
+                case sizeof(UInt64):
+                    index = assert_cast<const ColumnUInt64*>(positions)->get_element(i);
+                    break;
+                default:
+                    LOG(FATAL) << "Unexpected size of index type for low cardinality column.";
+                }
+            }
+        }
+
+        switch (key_sizes[j]) {
+        case 1:
+            memcpy(bytes + offset,
+                   static_cast<const ColumnVectorHelper*>(column)->get_raw_data_begin<1>() + index * offsets[j],
+                   1);
+            offset += 1;
+            break;
+        case 2:
+            memcpy(bytes + offset,
+                   static_cast<const ColumnVectorHelper*>(column)->get_raw_data_begin<2>() +
+                           index * offsets[j],
+                   2);
+            offset += 2;
+            break;
+        case 4:
+            memcpy(bytes + offset,
+                   static_cast<const ColumnVectorHelper*>(column)->get_raw_data_begin<4>() +
+                           index * offsets[j],
+                   4);
+            offset += 4;
+            break;
+        case 8:
+            memcpy(bytes + offset,
+                   static_cast<const ColumnVectorHelper*>(column)->get_raw_data_begin<8>() +
+                           index * offsets[j],
+                   8);
+            offset += 8;
+            break;
+        default:
+            memcpy(bytes + offset,
+                   static_cast<const ColumnVectorHelper*>(column)->get_raw_data_begin<1>() +
+                           index * offsets[j],
+                   key_sizes[j]);
+            offset += key_sizes[j];
+        }
+    }
+
+    return key;
+}
+
+/// Similar as above but supports nullable values.
+template <typename T>
+static inline T ALWAYS_INLINE pack_fixed(size_t i, size_t keys_size,
+                                         const ColumnRawPtrs& key_columns, const Sizes& key_sizes,
+                                         const Sizes& offsets, const KeysNullMap<T>& bitmap) {
+    union {
+        T key;
+        char bytes[sizeof(key)] = {};
+    };
+
+    size_t offset = 0;
+
+    static constexpr auto bitmap_size = std::tuple_size<KeysNullMap<T>>::value;
+    static constexpr bool has_bitmap = bitmap_size > 0;
+
+    if (has_bitmap) {
+        memcpy(bytes + offset, bitmap.data(), bitmap_size * sizeof(UInt8));
+        offset += bitmap_size;
+    }
+
+    for (size_t j = 0; j < keys_size; ++j) {
+        bool is_null;
+
+        if (!has_bitmap)
+            is_null = false;
+        else {
+            size_t bucket = j / 8;
+            size_t off = j % 8;
+            is_null = ((bitmap[bucket] >> off) & 1) == 1;
+        }
+
+        if (is_null) continue;
+
+        switch (key_sizes[j]) {
+        case 1:
+            memcpy(bytes + offset,
+                   static_cast<const ColumnVectorHelper*>(key_columns[j])->get_raw_data_begin<1>() +
+                           i * offsets[j],
+                   1);
+            offset += 1;
+            break;
+        case 2:
+            memcpy(bytes + offset,
+                   static_cast<const ColumnVectorHelper*>(key_columns[j])->get_raw_data_begin<2>() +
+                           i * offsets[j],
+                   2);
+            offset += 2;
+            break;
+        case 4:
+            memcpy(bytes + offset,
+                   static_cast<const ColumnVectorHelper*>(key_columns[j])->get_raw_data_begin<4>() +
+                           i * offsets[j],
+                   4);
+            offset += 4;
+            break;
+        case 8:
+            memcpy(bytes + offset,
+                   static_cast<const ColumnVectorHelper*>(key_columns[j])->get_raw_data_begin<8>() +
+                           i * offsets[j],
+                   8);
+            offset += 8;
+            break;
+        default:
+            memcpy(bytes + offset,
+                   static_cast<const ColumnVectorHelper*>(key_columns[j])->get_raw_data_begin<1>() +
+                           i * offsets[j],
+                   key_sizes[j]);
+            offset += key_sizes[j];
+        }
+    }
+
+    return key;
+}
+
 /// Hash a set of keys into a UInt128 value.
 static inline UInt128 ALWAYS_INLINE hash128(size_t i, size_t keys_size,
                                             const ColumnRawPtrs& key_columns) {
