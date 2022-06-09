@@ -1228,7 +1228,7 @@ public class Coordinator {
                 continue;
             }
 
-            int parallelExecInstanceNum = fragment.getParallelExecNum();
+            int parallelExecInstanceNum = fragment.getRecalculatedParallelExecNum();
             //for ColocateJoin fragment
             if ((isColocateFragment(fragment, fragment.getPlanRoot()) && fragmentIdToSeqToAddressMap.containsKey(fragment.getFragmentId())
                     && fragmentIdToSeqToAddressMap.get(fragment.getFragmentId()).size() > 0)) {
