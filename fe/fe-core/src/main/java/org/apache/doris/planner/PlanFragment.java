@@ -417,22 +417,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     
     private Predicate<PlanNode> notScanNodePredicate = new Predicate<PlanNode>() {
         public boolean apply(PlanNode node) {
-            PlanNode.NodeType nodeType = node.getNodeType();
-            return nodeType == PlanNode.NodeType.DEFAULT 
-                    || nodeType == PlanNode.NodeType.AGG_NODE
-                    || nodeType == PlanNode.NodeType.ASSERT_NUM_ROWS_NODE
-                    || nodeType == PlanNode.NodeType.CROSS_JOIN_NODE
-                    || nodeType == PlanNode.NodeType.EMPTY_SET_NODE
-                    || nodeType == PlanNode.NodeType.EXCEPT_NODE
-                    || nodeType == PlanNode.NodeType.EXCHANGE_NODE
-                    || nodeType == PlanNode.NodeType.HASH_JOIN_NODE 
-                    || nodeType == PlanNode.NodeType.INTERSECT_NODE 
-                    || nodeType == PlanNode.NodeType.REPEAT_NODE
-                    || nodeType == PlanNode.NodeType.SELECT_NODE
-                    || nodeType == PlanNode.NodeType.SET_OPERATION_NODE
-                    || nodeType == PlanNode.NodeType.SORT_NODE
-                    || nodeType == PlanNode.NodeType.TABLE_FUNCTION_NODE
-                    || nodeType == PlanNode.NodeType.UNION_NODE;
+            return !(node instanceof ScanNode);
         }
     };
 
