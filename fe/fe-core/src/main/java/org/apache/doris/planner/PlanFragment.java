@@ -422,10 +422,11 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     };
 
     public int getRecalculatedParallelExecNum() {
-        if (planRoot.contains(notScanNodePredicate)) {
-            return parallelExecNum;
-        } else {
+        if (!planRoot.contains(notScanNodePredicate) && outputPartition.getType() == TPartitionType.UNPARTITIONED) {
+            // don't need parallel execute if the fragment only contains scan node and broadcast to other fragment. 
             return 1;
+        } else {
+            return parallelExecNum;
         }
     }
 }
