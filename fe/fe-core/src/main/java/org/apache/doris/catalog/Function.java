@@ -461,6 +461,7 @@ public class Function implements Writable {
             fn.setChecksum(checksum);
         }
         fn.setVectorized(vectorized);
+        fn.setAlwaysNotNullable(nullableMode == NullableMode.ALWAYS_NOT_NULLABLE);
         return fn;
     }
 

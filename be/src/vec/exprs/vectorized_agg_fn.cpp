@@ -31,6 +31,7 @@ namespace doris::vectorized {
 AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
         : _fn(desc.fn),
           _is_merge(desc.agg_expr.is_merge_agg),
+          _is_always_not_nullable(desc.fn.always_not_nullable),
           _return_type(TypeDescriptor::from_thrift(desc.fn.ret_type)),
           _intermediate_type(TypeDescriptor::from_thrift(desc.fn.aggregate_fn.intermediate_type)),
           _intermediate_slot_desc(nullptr),

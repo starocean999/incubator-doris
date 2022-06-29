@@ -333,6 +333,7 @@ struct TFunction {
   11: optional i64 id
   12: optional string checksum
   13: optional bool vectorized = false
+  14: optional bool always_not_nullable = false
 }
 
 enum TLoadJobState {

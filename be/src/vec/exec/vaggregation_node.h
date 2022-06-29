@@ -420,6 +420,7 @@ private:
     // left / full join will change the output nullable make output/input solt
     // nullable diff. so we need make nullable of it.
     std::vector<size_t> _make_nullable_output_column_pos;
+    std::vector<bool> _agg_need_convert_to_nullable_flags;
     std::vector<size_t> _probe_key_sz;
 
     std::vector<AggFnEvaluator*> _aggregate_evaluators;

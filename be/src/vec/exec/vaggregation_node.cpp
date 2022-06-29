@@ -236,10 +236,12 @@ Status AggregationNode::prepare(RuntimeState* state) {
                                                           output_slot_desc, mem_tracker()));
         auto nullable_output = output_slot_desc->is_nullable();
         auto nullable_agg_output = _aggregate_evaluators[i]->data_type()->is_nullable();
-        if (nullable_output != nullable_agg_output) {
+        bool need_convert_to_nullable = (nullable_output != nullable_agg_output);
+        if (need_convert_to_nullable) {
             DCHECK(nullable_output);
             _make_nullable_output_column_pos.emplace_back(i + probe_expr_count);
         }
+        _agg_need_convert_to_nullable_flags.push_back(need_convert_to_nullable);
     }
 
     // set profile timer to evaluators
@@ -499,6 +501,10 @@ Status AggregationNode::_serialize_without_key(RuntimeState* state, Block* block
     }
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+        if (_agg_need_convert_to_nullable_flags[i] &&
+            !_aggregate_evaluators[i]->is_always_not_nullable()) {
+            write_binary(true, value_buffer_writers[i]);
+        }
         _aggregate_evaluators[i]->function()->serialize(
                 _agg_data.without_key + _offsets_of_aggregate_states[i], value_buffer_writers[i]);
         value_buffer_writers[i].commit();
@@ -961,6 +967,7 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
 
     std::visit(
             [&](auto&& agg_method) -> void {
+                DCHECK(_agg_need_convert_to_nullable_flags.size() == _aggregate_evaluators.size());
                 agg_method.init_once();
                 auto& data = agg_method.data;
                 auto& iter = agg_method.iterator;
@@ -972,6 +979,10 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
 
                     // serialize values
                     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
+                        if (_agg_need_convert_to_nullable_flags[i] &&
+                            !_aggregate_evaluators[i]->is_always_not_nullable()) {
+                            write_binary(true, value_buffer_writers[i]);
+                        }
                         _aggregate_evaluators[i]->function()->serialize(
                                 mapped + _offsets_of_aggregate_states[i], value_buffer_writers[i]);
                         value_buffer_writers[i].commit();
@@ -987,6 +998,10 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
                             key_columns[0]->insert_data(nullptr, 0);
                             auto mapped = agg_method.data.get_null_key_data();
                             for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
+                                if (_agg_need_convert_to_nullable_flags[i] &&
+                                    !_aggregate_evaluators[i]->is_always_not_nullable()) {
+                                    write_binary(true, value_buffer_writers[i]);
+                                }
                                 _aggregate_evaluators[i]->function()->serialize(
                                         mapped + _offsets_of_aggregate_states[i],
                                         value_buffer_writers[i]);

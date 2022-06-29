@@ -63,6 +63,8 @@ public:
 
     DataTypePtr& data_type() { return _data_type; }
 
+    bool is_always_not_nullable() const { return _is_always_not_nullable; }
+
     const AggregateFunctionPtr& function() { return _function; }
     static std::string debug_string(const std::vector<AggFnEvaluator*>& exprs);
     std::string debug_string() const;
@@ -73,6 +75,7 @@ private:
     const TFunction _fn;
 
     const bool _is_merge;
+    bool _is_always_not_nullable;
 
     AggFnEvaluator(const TExprNode& desc);
 
