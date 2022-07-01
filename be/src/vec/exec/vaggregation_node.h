@@ -423,6 +423,7 @@ private:
     std::vector<size_t> _probe_key_sz;
 
     std::vector<AggFnEvaluator*> _aggregate_evaluators;
+    std::vector<bool> _aggregate_evaluators_changed_flags;
 
     // may be we don't have to know the tuple id
     TupleId _intermediate_tuple_id;

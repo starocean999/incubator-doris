@@ -460,6 +460,8 @@ struct TAggregationNode {
   // rows have been aggregated, and this node is not an intermediate node.
   5: required bool need_finalize
   6: optional bool use_streaming_preaggregation
+
+  7: required list<bool> aggregate_function_changed_flags
 }
 
 struct TRepeatNode {

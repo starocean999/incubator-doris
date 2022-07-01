@@ -77,6 +77,7 @@ static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
 AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
+          _aggregate_evaluators_changed_flags(tnode.agg_node.aggregate_function_changed_flags),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _intermediate_tuple_desc(NULL),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
@@ -499,6 +500,9 @@ Status AggregationNode::_serialize_without_key(RuntimeState* state, Block* block
     }
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+        if (_aggregate_evaluators_changed_flags[i]) {
+            write_binary(true, value_buffer_writers[i]);
+        }
         _aggregate_evaluators[i]->function()->serialize(
                 _agg_data.without_key + _offsets_of_aggregate_states[i], value_buffer_writers[i]);
         value_buffer_writers[i].commit();
@@ -972,6 +976,9 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
 
                     // serialize values
                     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
+                        if (_aggregate_evaluators_changed_flags[i]) {
+                            write_binary(true, value_buffer_writers[i]);
+                        }
                         _aggregate_evaluators[i]->function()->serialize(
                                 mapped + _offsets_of_aggregate_states[i], value_buffer_writers[i]);
                         value_buffer_writers[i].commit();
@@ -987,6 +994,9 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
                             key_columns[0]->insert_data(nullptr, 0);
                             auto mapped = agg_method.data.get_null_key_data();
                             for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
+                                if (_aggregate_evaluators_changed_flags[i]) {
+                                    write_binary(true, value_buffer_writers[i]);
+                                }
                                 _aggregate_evaluators[i]->function()->serialize(
                                         mapped + _offsets_of_aggregate_states[i],
                                         value_buffer_writers[i]);
