@@ -221,9 +221,9 @@ Status AggregationNode::prepare(RuntimeState* state) {
 
     int j = _probe_expr_ctxs.size();
     for (int i = 0; i < j; ++i) {
-        auto nullable_output = _output_tuple_desc->slots()[i]->is_nullable();
+        auto nullable_output = _needs_finalize ? _output_tuple_desc->slots()[i]->is_nullable() : _intermediate_tuple_desc->slots()[i]->is_nullable();
         auto nullable_input = _probe_expr_ctxs[i]->root()->is_nullable();
-        if (nullable_output != nullable_input) {
+        if ( nullable_output != nullable_input ) {
             DCHECK(nullable_output);
             _make_nullable_output_column_pos.emplace_back(i);
         }
@@ -235,9 +235,9 @@ Status AggregationNode::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(state, child(0)->row_desc(),
                                                           _mem_pool.get(), intermediate_slot_desc,
                                                           output_slot_desc, mem_tracker()));
-        auto nullable_output = output_slot_desc->is_nullable();
+        auto nullable_output = _needs_finalize ? output_slot_desc->is_nullable() : intermediate_slot_desc->is_nullable();
         auto nullable_agg_output = _aggregate_evaluators[i]->data_type()->is_nullable();
-        if (nullable_output != nullable_agg_output) {
+        if ( nullable_output != nullable_agg_output) {
             DCHECK(nullable_output);
             _make_nullable_output_column_pos.emplace_back(i + probe_expr_count);
         }

@@ -764,6 +764,11 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     // _left_output_slots_flags : column of left table need to output set flag = true
     // _rgiht_output_slots_flags : column of right table need to output set flag = true
     // if _hash_output_slot_ids is empty, means all column of left/right table need to output.
+
+    // we have to output all columns because the next node
+    // because the next node might use VTupleIsNullPredicate
+    // but can't know which column it would use in this node
+    _hash_output_slot_ids.clear(); 
     auto init_output_slots_flags = [this](auto& tuple_descs, auto& output_slot_flags) {
         for (const auto& tuple_desc : tuple_descs) {
             for (const auto& slot_desc : tuple_desc->slots()) {
