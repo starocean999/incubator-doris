@@ -722,6 +722,9 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
 
                         for (size_t j = 0; j < rows; ++j) {
                             for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
+                                if (_aggregate_evaluators_changed_flags[i]) {
+                                    write_binary(true, value_buffer_writers[i]);
+                                }
                                 _aggregate_evaluators[i]->function()->serialize(
                                         _streaming_pre_places[j] + _offsets_of_aggregate_states[i],
                                         value_buffer_writers[i]);
